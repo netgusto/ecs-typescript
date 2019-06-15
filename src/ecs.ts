@@ -36,7 +36,7 @@ export class Tag {
     }
 }
 
-export class Component {
+export class Component<T> {
 
 	private id: ComponentID;
 	private tag: Tag;
@@ -62,7 +62,7 @@ export class Component {
         return this.tag;
     }
 
-    public getData(id: EntityID): undefined | any {
+    public getData(id: EntityID): undefined | T {
         return this.data.get(id);
     }
 
@@ -70,16 +70,16 @@ export class Component {
         return this.data.has(id);
     }
 
-    public setData(id: EntityID, data: any): Component {
+    public setData(id: EntityID, data: T): Component<T> {
         this.data.set(id, data);
         return this;
     }
     
-    public setDestructor(destructor: (entity: Entity, data: any) => void) {
+    public setDestructor(destructor: (entity: Entity, data: T) => void) {
         this.destructor = destructor
     }
 
-    public destroyEntity(entity: Entity) : Component {
+    public destroyEntity(entity: Entity) : Component<T> {
         const id = entity.getId();
 
         if (this.destructor) {
@@ -93,7 +93,7 @@ export class Component {
         return this;
     }
 
-    public getDestructor() : undefined | ((entity: Entity, data: any) => void) {
+    public getDestructor() : undefined | ((entity: Entity, data: T) => void) {
         return this.destructor;
     }
 }
@@ -118,7 +118,7 @@ export class Entity {
         return this.tag.matches(tag);
     }
     
-    public addComponent(component: Component, componentdata: any) {
+    public addComponent<T>(component: Component<T>, componentdata: T) {
 
         component.setData(this.id, componentdata);
     
@@ -134,7 +134,7 @@ export class Entity {
         return this;
     }
     
-    public removeComponent(component: Component): Entity {
+    public removeComponent(component: Component<any>): Entity {
 
         component.destroyEntity(this);
         
@@ -150,11 +150,11 @@ export class Entity {
         return this;
     }
 
-    public hasComponent(component: Component): boolean {
+    public hasComponent(component: Component<any>): boolean {
         return this.tag.matches(component.getTag());
     }
     
-    public getComponentData(component: Component): { data: any, ok: boolean } {
+    public getComponentData(component: Component<any>): { data: any, ok: boolean } {
         if (!component.hasData(this.id)) {
             return { data: undefined, ok: false };
         }
@@ -169,11 +169,15 @@ export class Entity {
 
 export class QueryResult {
 	public entity: Entity;
-    public components: Map<Component, any>;
+    private components: Map<Component<any>, any>;
     
-    public constructor(entity: Entity, components: Map<Component, any>) {
+    public constructor(entity: Entity, components: Map<Component<any>, any>) {
         this.entity = entity;
         this.components = components;
+    }
+
+    public get<T>(component: Component<T>): T {
+        return this.components.get(component);
     }
 }
 
@@ -223,8 +227,8 @@ export class View {
         this.mResults = results;
     }
 
-    public get(): QueryResultCollection {
-        return this.mResults;
+    public get(): QueryResult[] {
+        return this.mResults.results();
     }
 
     public getTag(): Tag {
@@ -257,7 +261,7 @@ export class Manager {
 
     protected entities: Entity[];
     protected entitiesByID: Map<EntityID, Entity>;
-    protected components: Component[];
+    protected components: Array<Component<any>>;
     protected views: View[];
 
     public constructor() {
@@ -273,10 +277,10 @@ export class Manager {
         return this.views;
     }
 
-    public createView(...tagelements: Array<Tag|Component>) : View {
+    public createView(...tagelements: Array<Tag|Component<any>>) : View {
     
         const tag: Tag = buildTag(...tagelements);
-        const qrs = this.query(tag);
+        const qrs = this.queryCollection(tag);
         const view = new View(tag, qrs);
 
         this.views.push(view);
@@ -300,7 +304,7 @@ export class Manager {
         return entity
     }
     
-    public newComponent(): Component {
+    public newComponent<T>(): Component<T> {
     
         if (this.componentNumInc >= 63) {
             throw new Error("Component overflow (limited to 64)");
@@ -309,7 +313,7 @@ export class Manager {
         const nextid = ++this.componentNumInc;
         const id = nextid - 1; // to start at 0
     
-        const component = new Component(id);
+        const component = new Component<T>(id);
         this.components.push(component)
     
         return component
@@ -333,8 +337,8 @@ export class Manager {
         return new QueryResult(entity, components);
     }
 
-    public disposeEntities(...entities: Entity[]) {
-        for(const entity of entities) {
+    public disposeEntities(tag: Tag) {
+        for(const entity of this.queryCollection(tag).entities()) {
             this.disposeEntity(entity)
         }
     }
@@ -360,13 +364,13 @@ export class Manager {
         this.entitiesByID.delete(typedentity.id);
     }
     
-    public fetchComponentsForEntity(entity: Entity, tag: Tag): undefined|Map<Component, any> {
+    public fetchComponentsForEntity(entity: Entity, tag: Tag): undefined|Map<Component<any>, any> {
     
         if(!entity.matches(tag)) {
             return undefined
         }
     
-        const componentMap = new Map<Component, any>();
+        const componentMap = new Map<Component<any>, any>();
     
         for (const component of this.components) {
             if (tag.matches(component.getTag())) {
@@ -384,7 +388,7 @@ export class Manager {
         return componentMap
     }
     
-    public query(tag: Tag): QueryResultCollection {
+    public queryCollection(tag: Tag): QueryResultCollection {
     
         const matches = new QueryResultCollection();
     
@@ -392,7 +396,7 @@ export class Manager {
 
             if(entity.matches(tag)) {
     
-                const componentMap = new Map<Component, any>();
+                const componentMap = new Map<Component<any>, any>();
     
                 for(const component of this.components) {
                     if(tag.matches(component.getTag())) {
@@ -410,9 +414,13 @@ export class Manager {
     
         return matches
     }
+
+    public query(tag: Tag): QueryResult[] {
+        return this.queryCollection(tag).results();
+    }
 }
 
-export function buildTag(...elements: Array<Tag|Component>): Tag {
+export function buildTag(...elements: Array<Tag|Component<any>>): Tag {
 
 	const tag = new Tag();
 
